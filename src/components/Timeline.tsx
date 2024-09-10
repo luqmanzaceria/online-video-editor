@@ -1,20 +1,32 @@
-// src/components/Timeline.tsx
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 
-const Timeline: React.FC<{
-  tracks: any[];
+interface Track {
+  id: string;
+  file: File;
+  type: "video" | "audio" | "image";
+  startTime: number;
+  duration: number;
+  row: number;
+}
+
+interface TimelineProps {
+  tracks: Track[];
   onSplitTrack: (trackId: string, splitTime: number) => void;
   onDeleteTrack: (trackId: string) => void;
-  onMoveTrack: (trackId: string, newStartTime: number) => void;
+  onMoveTrack: (trackId: string, newStartTime: number, newRow: number) => void;
   currentTime: number;
   onTimeUpdate: (time: number) => void;
-}> = ({
+  totalDuration: number;
+}
+
+const Timeline: React.FC<TimelineProps> = ({
   tracks,
   onSplitTrack,
   onDeleteTrack,
   onMoveTrack,
   currentTime,
   onTimeUpdate,
+  totalDuration,
 }) => {
   const [contextMenu, setContextMenu] = useState({
     visible: false,
@@ -22,164 +34,188 @@ const Timeline: React.FC<{
     y: 0,
     trackId: null,
   });
-  const timelineRef = useRef(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (contextMenu.visible && !event.target.closest(".context-menu")) {
-        setContextMenu({ ...contextMenu, visible: false });
+  const handleTimelineClick = useCallback(
+    (event: React.MouseEvent) => {
+      if (timelineRef.current) {
+        const rect = timelineRef.current.getBoundingClientRect();
+        const clickX = event.clientX - rect.left;
+        const clickTime = (clickX / rect.width) * totalDuration;
+        onTimeUpdate(Math.max(0, Math.min(clickTime, totalDuration)));
       }
-    };
+    },
+    [totalDuration, onTimeUpdate]
+  );
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [contextMenu]);
-
-  const handleContextMenu = (event, trackId) => {
-    event.preventDefault();
-    setContextMenu({
-      visible: true,
-      x: event.clientX,
-      y: event.clientY,
-      trackId,
-    });
-  };
-
-  const handleSplit = () => {
-    onSplitTrack(contextMenu.trackId, currentTime);
-    setContextMenu({ ...contextMenu, visible: false });
-  };
-
-  const handleDelete = () => {
-    onDeleteTrack(contextMenu.trackId);
-    setContextMenu({ ...contextMenu, visible: false });
-  };
-
-  const handleTimelineClick = (event) => {
-    const timelineRect = timelineRef.current.getBoundingClientRect();
-    const clickTime =
-      ((event.clientX - timelineRect.left) / timelineRect.width) * 30;
-    onTimeUpdate(clickTime);
+  const renderTimeMarkers = () => {
+    const markers = [];
+    for (let i = 0; i <= totalDuration; i += 5) {
+      markers.push(
+        <div key={i} className="flex-grow flex flex-col items-center">
+          <span className="text-xs text-gray-400">{i}s</span>
+          <span className="h-2 w-px bg-gray-600 mt-1"></span>
+        </div>
+      );
+    }
+    return markers;
   };
 
   return (
     <div
-      className="h-full bg-gray-900 p-4 flex flex-col"
+      className="h-full bg-gray-800 p-4 flex flex-col"
       ref={timelineRef}
       onClick={handleTimelineClick}
     >
-      <div className="flex-grow flex flex-col">
-        {/* Time markers */}
-        <div className="h-6 mb-2 flex text-gray-400 text-xs">
-          {[0, 5, 10, 15, 20, 25, 30].map((time) => (
-            <div key={time} className="flex-grow flex flex-col items-center">
-              <span>{time}s</span>
-              <span className="h-2 w-px bg-gray-700 mt-1"></span>
-            </div>
-          ))}
+      <div className="flex-grow flex flex-col overflow-y-auto">
+        <div className="h-8 mb-2 flex sticky top-0 bg-gray-800 z-10 border-b border-gray-700">
+          {renderTimeMarkers()}
         </div>
-        {/* Scrollable timeline area */}
-        <div className="flex-grow bg-gray-800 rounded-lg relative overflow-y-auto scrollbar-thin">
-          <div className="absolute top-0 left-0 right-0 min-h-full">
-            {tracks.map((track) => (
-              <TimelineTrack
-                key={track.id}
-                track={track}
-                onContextMenu={handleContextMenu}
-                onMoveTrack={onMoveTrack}
-              />
-            ))}
-          </div>
+        <div className="flex-grow relative">
+          {tracks.map((track) => (
+            <TimelineTrack
+              key={track.id}
+              track={track}
+              onContextMenu={setContextMenu}
+              onMoveTrack={onMoveTrack}
+              totalDuration={totalDuration}
+            />
+          ))}
           <div
-            className="absolute top-0 bottom-0 w-0.5 bg-blue-500 z-10"
-            style={{ left: `${(currentTime / 30) * 100}%` }}
+            className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none"
+            style={{
+              left: `${Math.max(0, (currentTime / totalDuration) * 100)}%`,
+            }}
           ></div>
         </div>
       </div>
       {contextMenu.visible && (
-        <div
-          className="absolute bg-gray-700 rounded-md shadow-lg z-50 context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-        >
-          <button
-            className="block w-full text-left px-4 py-2 hover:bg-gray-600"
-            onClick={handleSplit}
-          >
-            Split
-          </button>
-          <button
-            className="block w-full text-left px-4 py-2 hover:bg-gray-600"
-            onClick={handleDelete}
-          >
-            Delete
-          </button>
-        </div>
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          trackId={contextMenu.trackId}
+          onSplit={() => onSplitTrack(contextMenu.trackId, currentTime)}
+          onDelete={() => onDeleteTrack(contextMenu.trackId)}
+          onClose={() => setContextMenu({ ...contextMenu, visible: false })}
+        />
       )}
     </div>
   );
 };
 
 const TimelineTrack: React.FC<{
-  track: any;
-  onContextMenu: (event: React.MouseEvent, trackId: string) => void;
-  onMoveTrack: (trackId: string, newStartTime: number) => void;
-}> = ({ track, onContextMenu, onMoveTrack }) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState(0);
-  const trackRef = useRef(null);
+  track: Track;
+  onContextMenu: (menu: {
+    visible: boolean;
+    x: number;
+    y: number;
+    trackId: string;
+  }) => void;
+  onMoveTrack: (trackId: string, newStartTime: number, newRow: number) => void;
+  totalDuration: number;
+}> = ({ track, onContextMenu, onMoveTrack, totalDuration }) => {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const startPos = useRef({ x: 0, y: 0, startTime: 0, row: 0 });
 
-  const handleMouseDown = (event) => {
-    setIsDragging(true);
-    const trackRect = trackRef.current.getBoundingClientRect();
-    setDragOffset(event.clientX - trackRect.left);
+  const handleMouseDown = (event: React.MouseEvent) => {
+    event.preventDefault();
+    const trackElem = trackRef.current;
+    if (trackElem) {
+      startPos.current = {
+        x: event.clientX,
+        y: event.clientY,
+        startTime: track.startTime,
+        row: track.row,
+      };
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+    }
   };
 
-  const handleMouseMove = (event) => {
-    if (isDragging) {
-      const timelineRect = trackRef.current
-        .closest(".bg-gray-800")
-        .getBoundingClientRect();
+  const handleMouseMove = (event: MouseEvent) => {
+    const dx = event.clientX - startPos.current.x;
+    const rect = trackRef.current?.parentElement?.getBoundingClientRect();
+    if (rect) {
       const newStartTime = Math.max(
         0,
-        ((event.clientX - timelineRect.left - dragOffset) /
-          timelineRect.width) *
-          30
+        (dx / rect.width) * totalDuration + startPos.current.startTime
       );
-      onMoveTrack(track.id, newStartTime);
+      onMoveTrack(track.id, newStartTime, startPos.current.row); // Simplified: assumes no row change
     }
   };
 
   const handleMouseUp = () => {
-    setIsDragging(false);
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
   };
 
-  useEffect(() => {
-    if (isDragging) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-    }
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isDragging, handleMouseMove]);
-
   const trackStyle = {
-    left: `${(track.startTime / 30) * 100}%`,
-    width: `${(track.duration / 30) * 100}%`,
+    left: `${(track.startTime / totalDuration) * 100}%`,
+    width: `${(track.duration / totalDuration) * 100}%`,
+    top: `${track.row * 40}px`,
+  };
+
+  const getTrackColor = () => {
+    switch (track.type) {
+      case "video":
+        return "bg-blue-500";
+      case "audio":
+        return "bg-green-500";
+      case "image":
+        return "bg-purple-500";
+      default:
+        return "bg-gray-500";
+    }
   };
 
   return (
     <div
       ref={trackRef}
-      className="absolute h-12 bg-blue-500 bg-opacity-50 rounded-md cursor-move"
+      className={`absolute h-8 ${getTrackColor()} bg-opacity-75 rounded-md cursor-move flex items-center px-2 shadow-md`}
       style={trackStyle}
-      onContextMenu={(e) => onContextMenu(e, track.id)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onContextMenu({
+          visible: true,
+          x: e.clientX,
+          y: e.clientY,
+          trackId: track.id,
+        });
+      }}
       onMouseDown={handleMouseDown}
     >
-      <div className="px-2 py-1 text-white truncate">{track.file.name}</div>
+      <div className="text-white truncate text-sm font-medium">
+        {track.file.name} ({track.type})
+      </div>
+    </div>
+  );
+};
+
+const ContextMenu: React.FC<{
+  x: number;
+  y: number;
+  trackId: string;
+  onSplit: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}> = ({ x, y, onSplit, onDelete, onClose }) => {
+  return (
+    <div
+      className="absolute bg-gray-700 rounded-md shadow-lg z-30"
+      style={{ top: y, left: x }}
+    >
+      <button
+        className="block w-full text-left px-4 py-2 hover:bg-gray-600 text-white"
+        onClick={onSplit}
+      >
+        Split
+      </button>
+      <button
+        className="block w-full text-left px-4 py-2 hover:bg-gray-600 text-white"
+        onClick={onDelete}
+      >
+        Delete
+      </button>
     </div>
   );
 };

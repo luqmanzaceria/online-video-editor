@@ -1,5 +1,5 @@
 // src/components/VideoPreview.tsx
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
 
 interface Track {
   id: string;
@@ -16,6 +16,7 @@ interface VideoPreviewProps {
   isPlaying: boolean;
   onPlayPause: () => void;
   onTimeUpdate: (time: number) => void;
+  totalDuration: number;
 }
 
 const VideoPreview: React.FC<VideoPreviewProps> = ({
@@ -24,103 +25,122 @@ const VideoPreview: React.FC<VideoPreviewProps> = ({
   isPlaying,
   onPlayPause,
   onTimeUpdate,
+  totalDuration,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [activeVideoTrack, setActiveVideoTrack] = useState<Track | null>(null);
   const [activeAudioTrack, setActiveAudioTrack] = useState<Track | null>(null);
+  const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const [audioSrc, setAudioSrc] = useState<string | null>(null);
+
+  const findActiveTrack = useCallback(
+    (type: "video" | "audio") =>
+      tracks.find(
+        (track) =>
+          track.type === type &&
+          currentTime >= track.startTime &&
+          currentTime < track.startTime + track.duration
+      ),
+    [tracks, currentTime]
+  );
 
   useEffect(() => {
-    const newActiveVideoTrack = tracks.find(
-      (track) =>
-        track.type === "video" &&
-        currentTime >= track.startTime &&
-        currentTime < track.startTime + track.duration
-    );
-    setActiveVideoTrack(newActiveVideoTrack || null);
+    const videoTrack = findActiveTrack("video");
+    const audioTrack = findActiveTrack("audio");
 
-    const newActiveAudioTrack = tracks.find(
-      (track) =>
-        track.type === "audio" &&
-        currentTime >= track.startTime &&
-        currentTime < track.startTime + track.duration
-    );
-    setActiveAudioTrack(newActiveAudioTrack || null);
-  }, [tracks, currentTime]);
+    setActiveVideoTrack(videoTrack || null);
+    setActiveAudioTrack(audioTrack || null);
 
-  useEffect(() => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.play();
-      } else {
-        videoRef.current.pause();
-      }
+    if (videoTrack && videoTrack !== activeVideoTrack) {
+      const newVideoSrc = URL.createObjectURL(videoTrack.file);
+      setVideoSrc(newVideoSrc);
     }
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.play();
-      } else {
-        audioRef.current.pause();
-      }
+
+    if (audioTrack && audioTrack !== activeAudioTrack) {
+      const newAudioSrc = URL.createObjectURL(audioTrack.file);
+      setAudioSrc(newAudioSrc);
     }
-  }, [isPlaying]);
+
+    return () => {
+      if (videoSrc) URL.revokeObjectURL(videoSrc);
+      if (audioSrc) URL.revokeObjectURL(audioSrc);
+    };
+  }, [findActiveTrack, activeVideoTrack, activeAudioTrack]);
 
   useEffect(() => {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+
+    if (video) {
+      video.currentTime = activeVideoTrack
+        ? currentTime - activeVideoTrack.startTime
+        : 0;
+    }
+
+    if (audio) {
+      audio.currentTime = activeAudioTrack
+        ? currentTime - activeAudioTrack.startTime
+        : 0;
+    }
+
+    const playMedia = async () => {
+      if (isPlaying) {
+        if (video && activeVideoTrack) await video.play().catch(console.error);
+        if (audio && activeAudioTrack) await audio.play().catch(console.error);
+      } else {
+        if (video) video.pause();
+        if (audio) audio.pause();
+      }
+    };
+
+    playMedia();
+  }, [isPlaying, currentTime, activeVideoTrack, activeAudioTrack]);
+
+  const handleTimeUpdate = useCallback(() => {
     if (videoRef.current && activeVideoTrack) {
-      videoRef.current.src = URL.createObjectURL(activeVideoTrack.file);
-      videoRef.current.currentTime = currentTime - activeVideoTrack.startTime;
-    }
-    if (audioRef.current && activeAudioTrack) {
-      audioRef.current.src = URL.createObjectURL(activeAudioTrack.file);
-      audioRef.current.currentTime = currentTime - activeAudioTrack.startTime;
-    }
-  }, [activeVideoTrack, activeAudioTrack, currentTime]);
-
-  useEffect(() => {
-    const ctx = canvasRef.current?.getContext("2d");
-    if (ctx) {
-      ctx.fillStyle = "black";
-      ctx.fillRect(0, 0, canvasRef.current!.width, canvasRef.current!.height);
-    }
-  }, []);
-
-  const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      const newTime = activeVideoTrack
-        ? activeVideoTrack.startTime + videoRef.current.currentTime
-        : currentTime;
+      const newTime = activeVideoTrack.startTime + videoRef.current.currentTime;
+      onTimeUpdate(newTime);
+    } else if (audioRef.current && activeAudioTrack) {
+      const newTime = activeAudioTrack.startTime + audioRef.current.currentTime;
       onTimeUpdate(newTime);
     }
-  };
+  }, [activeVideoTrack, activeAudioTrack, onTimeUpdate]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+
+    if (video) video.addEventListener("timeupdate", handleTimeUpdate);
+    if (audio) audio.addEventListener("timeupdate", handleTimeUpdate);
+
+    return () => {
+      if (video) video.removeEventListener("timeupdate", handleTimeUpdate);
+      if (audio) audio.removeEventListener("timeupdate", handleTimeUpdate);
+    };
+  }, [handleTimeUpdate]);
 
   return (
-    <div className="relative w-full h-full bg-black">
-      {activeVideoTrack ? (
+    <div className="relative w-full h-full bg-gray-900 flex items-center justify-center overflow-hidden">
+      {videoSrc && (
         <video
           ref={videoRef}
-          className="w-full h-full object-contain"
-          onTimeUpdate={handleTimeUpdate}
-        />
-      ) : (
-        <canvas
-          ref={canvasRef}
-          className="w-full h-full"
-          width={1920}
-          height={1080}
+          src={videoSrc}
+          className="absolute top-0 left-0 w-full h-full object-contain"
+          playsInline
         />
       )}
-      <audio ref={audioRef} onTimeUpdate={handleTimeUpdate} />
-      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
+      {audioSrc && <audio ref={audioRef} src={audioSrc} />}
+      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-4">
         <button
-          className="bg-blue-500 text-white px-4 py-2 rounded-full"
+          className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-full transition-colors duration-200 font-semibold"
           onClick={onPlayPause}
         >
           {isPlaying ? "Pause" : "Play"}
         </button>
       </div>
-      <div className="absolute bottom-4 right-4 text-white">
-        {formatTime(currentTime)} / 30:00
+      <div className="absolute bottom-4 right-4 text-white bg-black bg-opacity-50 px-3 py-1 rounded-full text-sm font-mono">
+        {formatTime(Math.max(0, currentTime))} / {formatTime(totalDuration)}
       </div>
     </div>
   );

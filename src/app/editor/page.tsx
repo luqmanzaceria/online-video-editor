@@ -26,9 +26,36 @@ export default function Editor() {
   const [isDragging, setIsDragging] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const fileInputRef = useRef(null);
-  const dragCounter = useRef(0);
+  const lastUpdateTimeRef = useRef<number>(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number>();
+  const [totalDuration, setTotalDuration] = useState(30);
+
+  useEffect(() => {
+    const maxDuration = Math.max(
+      ...tracks.map((track) => track.startTime + track.duration),
+      30
+    );
+    setTotalDuration(maxDuration);
+  }, [tracks]);
+
+  const getMediaDuration = async (file: File): Promise<number> => {
+    return new Promise((resolve) => {
+      if (file.type.startsWith("image")) {
+        // For images, we can set a default duration
+        resolve(5); // 5 seconds default for images
+      } else {
+        const element = file.type.startsWith("video")
+          ? document.createElement("video")
+          : document.createElement("audio");
+        element.preload = "metadata";
+        element.onloadedmetadata = () => resolve(element.duration);
+        element.onerror = () => resolve(10); // Default to 10 seconds if there's an error
+        element.src = URL.createObjectURL(file);
+      }
+    });
+  };
 
   const handleResize = useCallback((deltaY: number) => {
     setPreviewHeight((prevHeight) => {
@@ -37,84 +64,98 @@ export default function Editor() {
     });
   }, []);
 
-  const handleDragEnter = useCallback((event) => {
+  const handleDragEnter = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    dragCounter.current++;
-    if (event.dataTransfer.items && event.dataTransfer.items.length > 0) {
-      setIsDragging(true);
-    }
+    setIsDragging(true);
   }, []);
 
-  const handleDragLeave = useCallback((event) => {
+  const handleDragLeave = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    dragCounter.current--;
-    if (dragCounter.current === 0) {
+    if (event.currentTarget === editorRef.current) {
       setIsDragging(false);
     }
   }, []);
 
-  const handleDragOver = useCallback((event) => {
+  const handleDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     event.stopPropagation();
   }, []);
 
-  const handleDrop = useCallback((event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setIsDragging(false);
-    dragCounter.current = 0;
-    const droppedFiles = Array.from(event.dataTransfer.files);
-    addNewTracks(droppedFiles);
-  }, []);
+  const addNewTracks = useCallback(
+    async (files: File[]) => {
+      const validFiles = files.filter(
+        (file) =>
+          file.type.startsWith("audio/") ||
+          file.type.startsWith("video/") ||
+          file.type.startsWith("image/")
+      );
 
-  const addNewTracks = useCallback((files: File[]) => {
-    const validFiles = files.filter(
-      (file) =>
-        file.type.startsWith("audio/") ||
-        file.type.startsWith("video/") ||
-        file.type.startsWith("image/")
-    );
-
-    setTracks((prevTracks) => {
       const newTracks: Track[] = [];
-      let maxRow = Math.max(...prevTracks.map((track) => track.row), -1);
+      let maxRow = Math.max(...tracks.map((track) => track.row), -1);
 
-      validFiles.forEach((file) => {
-        const fileType = file.type.startsWith("audio/")
-          ? "audio"
-          : file.type.startsWith("video/")
-          ? "video"
-          : "image";
+      for (const file of validFiles) {
+        const duration = await getMediaDuration(file);
 
-        maxRow++;
-        newTracks.push({
-          id: Date.now() + Math.random().toString(),
-          file,
-          type: fileType,
-          startTime: 0,
-          duration: 10, // Placeholder duration
-          row: maxRow,
-        });
+        if (file.type.startsWith("video/")) {
+          maxRow++;
+          newTracks.push({
+            id: Date.now() + Math.random().toString(),
+            file,
+            type: "video",
+            startTime: 0,
+            duration,
+            row: maxRow,
+          });
 
-        // If it's a video file, add an audio track as well
-        if (fileType === "video") {
           maxRow++;
           newTracks.push({
             id: Date.now() + Math.random().toString(),
             file,
             type: "audio",
             startTime: 0,
-            duration: 10, // Placeholder duration
+            duration,
+            row: maxRow,
+          });
+        } else if (file.type.startsWith("audio/")) {
+          maxRow++;
+          newTracks.push({
+            id: Date.now() + Math.random().toString(),
+            file,
+            type: "audio",
+            startTime: 0,
+            duration,
+            row: maxRow,
+          });
+        } else if (file.type.startsWith("image/")) {
+          maxRow++;
+          newTracks.push({
+            id: Date.now() + Math.random().toString(),
+            file,
+            type: "image",
+            startTime: 0,
+            duration: 5, // Fixed duration for images
             row: maxRow,
           });
         }
-      });
+      }
 
-      return [...prevTracks, ...newTracks];
-    });
-  }, []);
+      setTracks((prevTracks) => [...prevTracks, ...newTracks]);
+    },
+    [tracks, getMediaDuration]
+  );
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setIsDragging(false);
+      const droppedFiles = Array.from(event.dataTransfer.files);
+      addNewTracks(droppedFiles);
+    },
+    [addNewTracks]
+  );
 
   const handleFileUpload = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -133,23 +174,30 @@ export default function Editor() {
   const animate = useCallback(
     (time: number) => {
       if (isPlaying) {
+        if (lastUpdateTimeRef.current === 0) {
+          lastUpdateTimeRef.current = time;
+        }
+        const deltaTime = (time - lastUpdateTimeRef.current) / 1000;
+        lastUpdateTimeRef.current = time;
+
         setCurrentTime((prevTime) => {
-          const nextTime = prevTime + 0.016; // Assuming 60fps
-          return nextTime >= 30 ? 0 : nextTime;
+          const nextTime = prevTime + deltaTime;
+          return nextTime >= totalDuration ? 0 : nextTime;
         });
       }
       requestRef.current = requestAnimationFrame(animate);
     },
-    [isPlaying]
+    [isPlaying, totalDuration]
   );
 
   useEffect(() => {
+    lastUpdateTimeRef.current = performance.now();
     requestRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(requestRef.current!);
   }, [animate]);
 
   const handleTimeUpdate = useCallback((time: number) => {
-    setCurrentTime(time);
+    setCurrentTime(Math.max(0, Math.min(time, 30))); // Ensure time is between 0 and 30
   }, []);
 
   const handleSplitTrack = useCallback((trackId: string, splitTime: number) => {
@@ -201,7 +249,8 @@ export default function Editor() {
     <EditorLayout>
       <TopBar />
       <div
-        className="flex flex-1 overflow-hidden"
+        ref={editorRef}
+        className="flex flex-1 overflow-hidden bg-gray-900"
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -214,7 +263,7 @@ export default function Editor() {
           />
           {activePanel && <LeftPanel panelType={activePanel} />}
         </div>
-        <main className="flex-grow flex flex-col bg-gray-900">
+        <main className="flex-grow flex flex-col">
           <div style={{ height: `${previewHeight}%` }} className="flex-none">
             <VideoPreview
               tracks={tracks}
@@ -236,6 +285,7 @@ export default function Editor() {
               onMoveTrack={handleMoveTrack}
               currentTime={currentTime}
               onTimeUpdate={handleTimeUpdate}
+              totalDuration={totalDuration}
             />
           </div>
         </main>
@@ -249,8 +299,10 @@ export default function Editor() {
         multiple
       />
       {isDragging && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 z-50">
-          <div className="text-white text-2xl">Drop files here to upload</div>
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 z-50 pointer-events-none">
+          <div className="text-white text-2xl border-2 border-dashed border-white p-8 rounded-lg">
+            Drop files here to upload
+          </div>
         </div>
       )}
     </EditorLayout>
