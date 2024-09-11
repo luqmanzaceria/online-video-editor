@@ -1,7 +1,8 @@
 // src/app/editor/page.tsx
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
+import { TimelineProvider, useTimeline } from "@/context/TimelineContext";
 import EditorLayout from "@/components/EditorLayout";
 import VideoPreview from "@/components/VideoPreview";
 import Timeline from "@/components/Timeline";
@@ -10,52 +11,13 @@ import LeftPanel from "@/components/LeftPanel";
 import TopBar from "@/components/TopBar";
 import VerticalResizer from "@/components/VerticalResizer";
 
-interface Track {
-  id: string;
-  file: File;
-  type: "video" | "audio" | "image";
-  startTime: number;
-  duration: number;
-  row: number;
-}
-
-export default function Editor() {
+function EditorContent() {
+  const { state, dispatch } = useTimeline();
   const [activePanel, setActivePanel] = useState(null);
   const [previewHeight, setPreviewHeight] = useState(50); // Percentage
-  const [tracks, setTracks] = useState<Track[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const lastUpdateTimeRef = useRef<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
-  const requestRef = useRef<number>();
-  const [totalDuration, setTotalDuration] = useState(30);
-
-  useEffect(() => {
-    const maxDuration = Math.max(
-      ...tracks.map((track) => track.startTime + track.duration),
-      30
-    );
-    setTotalDuration(maxDuration);
-  }, [tracks]);
-
-  const getMediaDuration = async (file: File): Promise<number> => {
-    return new Promise((resolve) => {
-      if (file.type.startsWith("image")) {
-        // For images, we can set a default duration
-        resolve(5); // 5 seconds default for images
-      } else {
-        const element = file.type.startsWith("video")
-          ? document.createElement("video")
-          : document.createElement("audio");
-        element.preload = "metadata";
-        element.onloadedmetadata = () => resolve(element.duration);
-        element.onerror = () => resolve(10); // Default to 10 seconds if there's an error
-        element.src = URL.createObjectURL(file);
-      }
-    });
-  };
 
   const handleResize = useCallback((deltaY: number) => {
     setPreviewHeight((prevHeight) => {
@@ -83,6 +45,22 @@ export default function Editor() {
     event.stopPropagation();
   }, []);
 
+  const getMediaDuration = async (file: File): Promise<number> => {
+    return new Promise((resolve) => {
+      if (file.type.startsWith("image")) {
+        resolve(5); // 5 seconds default for images
+      } else {
+        const element = file.type.startsWith("video")
+          ? document.createElement("video")
+          : document.createElement("audio");
+        element.preload = "metadata";
+        element.onloadedmetadata = () => resolve(element.duration);
+        element.onerror = () => resolve(10); // Default to 10 seconds if there's an error
+        element.src = URL.createObjectURL(file);
+      }
+    });
+  };
+
   const addNewTracks = useCallback(
     async (files: File[]) => {
       const validFiles = files.filter(
@@ -92,58 +70,73 @@ export default function Editor() {
           file.type.startsWith("image/")
       );
 
-      const newTracks: Track[] = [];
-      let maxRow = Math.max(...tracks.map((track) => track.row), -1);
+      let maxRow = Math.max(...state.tracks.map((track) => track.row), -1);
 
       for (const file of validFiles) {
         const duration = await getMediaDuration(file);
 
         if (file.type.startsWith("video/")) {
           maxRow++;
-          newTracks.push({
-            id: Date.now() + Math.random().toString(),
-            file,
-            type: "video",
-            startTime: 0,
-            duration,
-            row: maxRow,
+          dispatch({
+            type: "ADD_TRACK",
+            payload: {
+              id: Date.now() + Math.random().toString(),
+              file,
+              type: "video",
+              startTime: 0,
+              duration,
+              row: maxRow,
+            },
           });
 
           maxRow++;
-          newTracks.push({
-            id: Date.now() + Math.random().toString(),
-            file,
-            type: "audio",
-            startTime: 0,
-            duration,
-            row: maxRow,
+          dispatch({
+            type: "ADD_TRACK",
+            payload: {
+              id: Date.now() + Math.random().toString(),
+              file,
+              type: "audio",
+              startTime: 0,
+              duration,
+              row: maxRow,
+            },
           });
         } else if (file.type.startsWith("audio/")) {
           maxRow++;
-          newTracks.push({
-            id: Date.now() + Math.random().toString(),
-            file,
-            type: "audio",
-            startTime: 0,
-            duration,
-            row: maxRow,
+          dispatch({
+            type: "ADD_TRACK",
+            payload: {
+              id: Date.now() + Math.random().toString(),
+              file,
+              type: "audio",
+              startTime: 0,
+              duration,
+              row: maxRow,
+            },
           });
         } else if (file.type.startsWith("image/")) {
           maxRow++;
-          newTracks.push({
-            id: Date.now() + Math.random().toString(),
-            file,
-            type: "image",
-            startTime: 0,
-            duration: 5, // Fixed duration for images
-            row: maxRow,
+          dispatch({
+            type: "ADD_TRACK",
+            payload: {
+              id: Date.now() + Math.random().toString(),
+              file,
+              type: "image",
+              startTime: 0,
+              duration: 5, // Fixed duration for images
+              row: maxRow,
+            },
           });
         }
       }
 
-      setTracks((prevTracks) => [...prevTracks, ...newTracks]);
+      const maxDuration = Math.max(
+        ...state.tracks.map((track) => track.startTime + track.duration),
+        30
+      );
+      dispatch({ type: "SET_TOTAL_DURATION", payload: maxDuration });
     },
-    [tracks, getMediaDuration]
+    [state.tracks, dispatch]
   );
 
   const handleDrop = useCallback(
@@ -168,85 +161,21 @@ export default function Editor() {
   );
 
   const handlePlayPause = useCallback(() => {
-    setIsPlaying((prev) => !prev);
-  }, []);
+    dispatch({ type: "SET_IS_PLAYING", payload: !state.isPlaying });
+  }, [state.isPlaying, dispatch]);
 
-  const animate = useCallback(
+  const handleTimeUpdate = useCallback(
     (time: number) => {
-      if (isPlaying) {
-        if (lastUpdateTimeRef.current === 0) {
-          lastUpdateTimeRef.current = time;
-        }
-        const deltaTime = (time - lastUpdateTimeRef.current) / 1000;
-        lastUpdateTimeRef.current = time;
-
-        setCurrentTime((prevTime) => {
-          const nextTime = prevTime + deltaTime;
-          return nextTime >= totalDuration ? 0 : nextTime;
-        });
-      }
-      requestRef.current = requestAnimationFrame(animate);
+      dispatch({
+        type: "SET_CURRENT_TIME",
+        payload: Math.max(0, Math.min(time, state.totalDuration)),
+      });
     },
-    [isPlaying, totalDuration]
-  );
-
-  useEffect(() => {
-    lastUpdateTimeRef.current = performance.now();
-    requestRef.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(requestRef.current!);
-  }, [animate]);
-
-  const handleTimeUpdate = useCallback((time: number) => {
-    setCurrentTime(Math.max(0, Math.min(time, 30))); // Ensure time is between 0 and 30
-  }, []);
-
-  const handleSplitTrack = useCallback((trackId: string, splitTime: number) => {
-    setTracks((prevTracks) => {
-      const trackIndex = prevTracks.findIndex((track) => track.id === trackId);
-      if (trackIndex === -1) return prevTracks;
-
-      const track = prevTracks[trackIndex];
-      const newTrack1 = {
-        ...track,
-        duration: splitTime - track.startTime,
-      };
-      const newTrack2 = {
-        ...track,
-        id: Date.now() + Math.random().toString(),
-        startTime: splitTime,
-        duration: track.duration - (splitTime - track.startTime),
-      };
-
-      return [
-        ...prevTracks.slice(0, trackIndex),
-        newTrack1,
-        newTrack2,
-        ...prevTracks.slice(trackIndex + 1),
-      ];
-    });
-  }, []);
-
-  const handleDeleteTrack = useCallback((trackId: string) => {
-    setTracks((prevTracks) =>
-      prevTracks.filter((track) => track.id !== trackId)
-    );
-  }, []);
-
-  const handleMoveTrack = useCallback(
-    (trackId: string, newStartTime: number, newRow: number) => {
-      setTracks((prevTracks) =>
-        prevTracks.map((track) =>
-          track.id === trackId
-            ? { ...track, startTime: newStartTime, row: newRow }
-            : track
-        )
-      );
-    },
-    []
+    [state.totalDuration, dispatch]
   );
 
   return (
-    <EditorLayout>
+    <>
       <TopBar />
       <div
         ref={editorRef}
@@ -265,28 +194,14 @@ export default function Editor() {
         </div>
         <main className="flex-grow flex flex-col">
           <div style={{ height: `${previewHeight}%` }} className="flex-none">
-            <VideoPreview
-              tracks={tracks}
-              currentTime={currentTime}
-              isPlaying={isPlaying}
-              onPlayPause={handlePlayPause}
-              onTimeUpdate={handleTimeUpdate}
-            />
+            <VideoPreview />
           </div>
           <VerticalResizer onResize={handleResize} />
           <div
             style={{ height: `${100 - previewHeight}%` }}
             className="flex-none overflow-hidden"
           >
-            <Timeline
-              tracks={tracks}
-              onSplitTrack={handleSplitTrack}
-              onDeleteTrack={handleDeleteTrack}
-              onMoveTrack={handleMoveTrack}
-              currentTime={currentTime}
-              onTimeUpdate={handleTimeUpdate}
-              totalDuration={totalDuration}
-            />
+            <Timeline />
           </div>
         </main>
       </div>
@@ -305,6 +220,16 @@ export default function Editor() {
           </div>
         </div>
       )}
-    </EditorLayout>
+    </>
+  );
+}
+
+export default function Editor() {
+  return (
+    <TimelineProvider>
+      <EditorLayout>
+        <EditorContent />
+      </EditorLayout>
+    </TimelineProvider>
   );
 }

@@ -1,38 +1,14 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+// src/components/Timeline.tsx
+import React, { useState, useRef, useCallback } from "react";
+import { useTimeline, Track } from "@/context/TimelineContext";
 
-interface Track {
-  id: string;
-  file: File;
-  type: "video" | "audio" | "image";
-  startTime: number;
-  duration: number;
-  row: number;
-}
-
-interface TimelineProps {
-  tracks: Track[];
-  onSplitTrack: (trackId: string, splitTime: number) => void;
-  onDeleteTrack: (trackId: string) => void;
-  onMoveTrack: (trackId: string, newStartTime: number, newRow: number) => void;
-  currentTime: number;
-  onTimeUpdate: (time: number) => void;
-  totalDuration: number;
-}
-
-const Timeline: React.FC<TimelineProps> = ({
-  tracks,
-  onSplitTrack,
-  onDeleteTrack,
-  onMoveTrack,
-  currentTime,
-  onTimeUpdate,
-  totalDuration,
-}) => {
+const Timeline: React.FC = () => {
+  const { state, dispatch } = useTimeline();
   const [contextMenu, setContextMenu] = useState({
     visible: false,
     x: 0,
     y: 0,
-    trackId: null,
+    trackId: null as string | null,
   });
   const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -41,16 +17,48 @@ const Timeline: React.FC<TimelineProps> = ({
       if (timelineRef.current) {
         const rect = timelineRef.current.getBoundingClientRect();
         const clickX = event.clientX - rect.left;
-        const clickTime = (clickX / rect.width) * totalDuration;
-        onTimeUpdate(Math.max(0, Math.min(clickTime, totalDuration)));
+        const clickTime = (clickX / rect.width) * state.totalDuration;
+        dispatch({
+          type: "SET_CURRENT_TIME",
+          payload: Math.max(0, Math.min(clickTime, state.totalDuration)),
+        });
       }
     },
-    [totalDuration, onTimeUpdate]
+    [state.totalDuration, dispatch]
+  );
+
+  const handleSplitTrack = useCallback(
+    (trackId: string, splitTime: number) => {
+      dispatch({ type: "SPLIT_TRACK", payload: { trackId, splitTime } });
+      setContextMenu({ ...contextMenu, visible: false });
+    },
+    [dispatch]
+  );
+
+  const handleDeleteTrack = useCallback(
+    (trackId: string) => {
+      dispatch({ type: "DELETE_TRACK", payload: trackId });
+      setContextMenu({ ...contextMenu, visible: false });
+    },
+    [dispatch]
+  );
+
+  const handleMoveTrack = useCallback(
+    (trackId: string, newStartTime: number, newRow: number) => {
+      const track = state.tracks.find((t) => t.id === trackId);
+      if (track) {
+        dispatch({
+          type: "UPDATE_TRACK",
+          payload: { ...track, startTime: newStartTime, row: newRow },
+        });
+      }
+    },
+    [state.tracks, dispatch]
   );
 
   const renderTimeMarkers = () => {
     const markers = [];
-    for (let i = 0; i <= totalDuration; i += 5) {
+    for (let i = 0; i <= state.totalDuration; i += 5) {
       markers.push(
         <div key={i} className="flex-grow flex flex-col items-center">
           <span className="text-xs text-gray-400">{i}s</span>
@@ -72,30 +80,35 @@ const Timeline: React.FC<TimelineProps> = ({
           {renderTimeMarkers()}
         </div>
         <div className="flex-grow relative">
-          {tracks.map((track) => (
+          {state.tracks.map((track) => (
             <TimelineTrack
               key={track.id}
               track={track}
               onContextMenu={setContextMenu}
-              onMoveTrack={onMoveTrack}
-              totalDuration={totalDuration}
+              onMoveTrack={handleMoveTrack}
+              totalDuration={state.totalDuration}
             />
           ))}
           <div
             className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none"
             style={{
-              left: `${Math.max(0, (currentTime / totalDuration) * 100)}%`,
+              left: `${Math.max(
+                0,
+                (state.currentTime / state.totalDuration) * 100
+              )}%`,
             }}
           ></div>
         </div>
       </div>
-      {contextMenu.visible && (
+      {contextMenu.visible && contextMenu.trackId && (
         <ContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
           trackId={contextMenu.trackId}
-          onSplit={() => onSplitTrack(contextMenu.trackId, currentTime)}
-          onDelete={() => onDeleteTrack(contextMenu.trackId)}
+          onSplit={() =>
+            handleSplitTrack(contextMenu.trackId!, state.currentTime)
+          }
+          onDelete={() => handleDeleteTrack(contextMenu.trackId!)}
           onClose={() => setContextMenu({ ...contextMenu, visible: false })}
         />
       )}
@@ -134,13 +147,15 @@ const TimelineTrack: React.FC<{
 
   const handleMouseMove = (event: MouseEvent) => {
     const dx = event.clientX - startPos.current.x;
+    const dy = event.clientY - startPos.current.y;
     const rect = trackRef.current?.parentElement?.getBoundingClientRect();
     if (rect) {
       const newStartTime = Math.max(
         0,
         (dx / rect.width) * totalDuration + startPos.current.startTime
       );
-      onMoveTrack(track.id, newStartTime, startPos.current.row); // Simplified: assumes no row change
+      const newRow = Math.floor((event.clientY - rect.top) / 40);
+      onMoveTrack(track.id, newStartTime, newRow);
     }
   };
 
