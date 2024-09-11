@@ -45,6 +45,8 @@ const VideoPreview: React.FC<VideoPreviewProps> = ({
       return () => {
         URL.revokeObjectURL(newVideoURL);
       };
+    } else {
+      setVideoObjectURL(null);
     }
   }, [videoTrack]);
 
@@ -121,10 +123,14 @@ const VideoPreview: React.FC<VideoPreviewProps> = ({
   }, [onPlayPause]);
 
   return (
-    <div className="relative w-full h-full bg-gray-900 flex items-center justify-center overflow-hidden">
-      <div style={{ width: "480px", height: "270px" }}>
-        <video ref={videoRef} className="video-js" />
-      </div>
+    <div className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden">
+      {videoTrack ? (
+        <div style={{ width: "480px", height: "270px" }}>
+          <video ref={videoRef} className="video-js" />
+        </div>
+      ) : (
+        <div className="text-white text-2xl">No video track available</div>
+      )}
       <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-4">
         <button
           className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-full transition-colors duration-200 font-semibold"
@@ -141,6 +147,9 @@ const VideoPreview: React.FC<VideoPreviewProps> = ({
 };
 
 const formatTime = (time: number): string => {
+  if (isNaN(time) || time < 0) {
+    return "00:30";
+  }
   const minutes = Math.floor(time / 60);
   const seconds = Math.floor(time % 60);
   return `${minutes.toString().padStart(2, "0")}:${seconds
