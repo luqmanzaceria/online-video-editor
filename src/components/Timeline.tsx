@@ -59,7 +59,9 @@ const Timeline: React.FC = () => {
     const markers = [];
     for (let i = 0; i <= state.totalDuration; i += 5) {
       markers.push(
-        <div key={i} className="flex-grow flex flex-col items-center">
+        <div key={i} className="flex-grow flex flex-col items-start">
+          {" "}
+          {/* Adjusted for left alignment */}
           <span className="text-xs text-gray-400">{i}s</span>
           <span className="h-2 w-px bg-gray-600 mt-1"></span>
         </div>
