@@ -69,6 +69,8 @@ const VideoPreview: React.FC = () => {
 
   useEffect(() => {
     const updateMediaElements = () => {
+      let activeVideoFound = false;
+
       state.tracks.forEach((track) => {
         const media =
           track.type === "video"
@@ -79,6 +81,10 @@ const VideoPreview: React.FC = () => {
           const trackEnd = track.startTime + track.duration;
 
           if (state.currentTime >= trackStart && state.currentTime < trackEnd) {
+            if (track.type === "video") {
+              media.style.display = "block";
+              activeVideoFound = true;
+            }
             media.currentTime = state.currentTime - trackStart;
             if (state.isPlaying && media.paused) {
               media.play();
@@ -86,10 +92,20 @@ const VideoPreview: React.FC = () => {
               media.pause();
             }
           } else {
+            if (track.type === "video") {
+              media.style.display = "none";
+            }
             media.pause();
           }
         }
       });
+
+      // If no active video is found, ensure the container is black
+      if (!activeVideoFound && containerRef.current) {
+        containerRef.current.style.backgroundColor = "black";
+      } else if (containerRef.current) {
+        containerRef.current.style.backgroundColor = "transparent";
+      }
     };
 
     updateMediaElements();
@@ -98,13 +114,19 @@ const VideoPreview: React.FC = () => {
       if (state.isPlaying) {
         dispatch({
           type: "SET_CURRENT_TIME",
-          payload: state.currentTime + 0.1,
+          payload: Math.min(state.currentTime + 0.1, state.totalDuration),
         });
       }
     }, 100);
 
     return () => clearInterval(interval);
-  }, [state.currentTime, state.isPlaying, state.tracks, dispatch]);
+  }, [
+    state.currentTime,
+    state.isPlaying,
+    state.tracks,
+    state.totalDuration,
+    dispatch,
+  ]);
 
   const handlePlayPause = useCallback(() => {
     dispatch({ type: "SET_IS_PLAYING", payload: !state.isPlaying });
