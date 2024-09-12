@@ -26,6 +26,7 @@ const VideoPreview: React.FC = () => {
         video.style.width = "100%";
         video.style.height = "100%";
         video.style.objectFit = "contain";
+        video.muted = true;
         videoRefs.current[track.id] = video;
         containerRef.current?.appendChild(video);
       }
