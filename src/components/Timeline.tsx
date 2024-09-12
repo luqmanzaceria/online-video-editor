@@ -86,9 +86,19 @@ const Timeline: React.FC = () => {
 
   const renderTimeMarkers = () => {
     const markers = [];
+    const markerSpacing = 100; // Pixels between each marker
+    const totalWidth = state.totalDuration * (markerSpacing / 5); // Total width of the timeline
+
     for (let i = 0; i <= state.totalDuration; i += 5) {
       markers.push(
-        <div key={i} className="flex-grow flex flex-col items-start">
+        <div
+          key={i}
+          className="flex flex-col items-starts absolute"
+          style={{
+            left: `${(i / state.totalDuration) * totalWidth * 2.24}px`,
+            width: `${markerSpacing}px`,
+          }}
+        >
           <span className="text-xs text-gray-400">{i}s</span>
           <span className="h-2 w-px bg-gray-600 mt-1"></span>
         </div>
