@@ -1,5 +1,6 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { useTimeline, Track } from "@/context/TimelineContext";
+import { useSpring, animated } from "react-spring";
 
 const Timeline: React.FC = () => {
   const { state, dispatch } = useTimeline();
@@ -11,6 +12,11 @@ const Timeline: React.FC = () => {
   });
   const timelineRef = useRef<HTMLDivElement>(null);
 
+  const [props, set] = useSpring(() => ({
+    left: "0%",
+    immediate: true,
+  }));
+
   const handleTimelineClick = useCallback(
     (event: React.MouseEvent) => {
       if (timelineRef.current) {
@@ -21,9 +27,13 @@ const Timeline: React.FC = () => {
           type: "SET_CURRENT_TIME",
           payload: Math.max(0, Math.min(clickTime, state.totalDuration)),
         });
+        set({
+          left: `${(clickTime / state.totalDuration) * 100}%`,
+          immediate: true,
+        });
       }
     },
-    [state.totalDuration, dispatch]
+    [state.totalDuration, dispatch, set]
   );
 
   const handleSplitTrack = useCallback(
@@ -55,13 +65,30 @@ const Timeline: React.FC = () => {
     [state.tracks, dispatch]
   );
 
+  useEffect(() => {
+    const interval = state.isPlaying
+      ? setInterval(() => {
+          const newTime = Math.min(
+            state.currentTime + 0.1,
+            state.totalDuration
+          );
+          dispatch({ type: "SET_CURRENT_TIME", payload: newTime });
+          set({
+            left: `${(newTime / state.totalDuration) * 100}%`,
+            immediate: false,
+          });
+        }, 100)
+      : null;
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [state.isPlaying, state.currentTime, state.totalDuration, dispatch, set]);
+
   const renderTimeMarkers = () => {
     const markers = [];
     for (let i = 0; i <= state.totalDuration; i += 5) {
       markers.push(
         <div key={i} className="flex-grow flex flex-col items-start">
-          {" "}
-          {/* Adjusted for left alignment */}
           <span className="text-xs text-gray-400">{i}s</span>
           <span className="h-2 w-px bg-gray-600 mt-1"></span>
         </div>
@@ -90,15 +117,10 @@ const Timeline: React.FC = () => {
               totalDuration={state.totalDuration}
             />
           ))}
-          <div
+          <animated.div
             className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none"
-            style={{
-              left: `${Math.max(
-                0,
-                (state.currentTime / state.totalDuration) * 100
-              )}%`,
-            }}
-          ></div>
+            style={props}
+          ></animated.div>
         </div>
       </div>
       {contextMenu.visible && contextMenu.trackId && (
@@ -117,24 +139,18 @@ const Timeline: React.FC = () => {
   );
 };
 
-const TimelineTrack: React.FC<{
-  track: Track;
-  onContextMenu: (menu: {
-    visible: boolean;
-    x: number;
-    y: number;
-    trackId: string;
-  }) => void;
-  onMoveTrack: (trackId: string, newStartTime: number, newRow: number) => void;
-  totalDuration: number;
-}> = ({ track, onContextMenu, onMoveTrack, totalDuration }) => {
-  const trackRef = useRef<HTMLDivElement>(null);
+const TimelineTrack = ({
+  track,
+  onContextMenu,
+  onMoveTrack,
+  totalDuration,
+}) => {
+  const trackRef = useRef(null);
   const startPos = useRef({ x: 0, y: 0, startTime: 0, row: 0 });
 
-  const handleMouseDown = (event: React.MouseEvent) => {
-    event.preventDefault();
-    const trackElem = trackRef.current;
-    if (trackElem) {
+  const handleMouseDown = useCallback(
+    (event) => {
+      event.preventDefault();
       startPos.current = {
         x: event.clientX,
         y: event.clientY,
@@ -143,22 +159,25 @@ const TimelineTrack: React.FC<{
       };
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
-    }
-  };
+    },
+    [track.startTime, track.row]
+  );
 
-  const handleMouseMove = (event: MouseEvent) => {
-    const dx = event.clientX - startPos.current.x;
-    const dy = event.clientY - startPos.current.y;
-    const rect = trackRef.current?.parentElement?.getBoundingClientRect();
-    if (rect) {
-      const newStartTime = Math.max(
-        0,
-        (dx / rect.width) * totalDuration + startPos.current.startTime
-      );
-      const newRow = Math.floor((event.clientY - rect.top) / 40);
-      onMoveTrack(track.id, newStartTime, newRow);
-    }
-  };
+  const handleMouseMove = useCallback(
+    (event) => {
+      const dx = event.clientX - startPos.current.x;
+      const rect = trackRef.current?.getBoundingClientRect();
+      if (rect) {
+        const newStartTime = Math.max(
+          0,
+          (dx / rect.width) * totalDuration + startPos.current.startTime
+        );
+        const newRow = Math.floor((event.clientY - rect.top) / 40);
+        onMoveTrack(track.id, newStartTime, newRow);
+      }
+    },
+    [totalDuration, onMoveTrack, track.id]
+  );
 
   const handleMouseUp = () => {
     document.removeEventListener("mousemove", handleMouseMove);
@@ -171,24 +190,14 @@ const TimelineTrack: React.FC<{
     top: `${track.row * 40}px`,
   };
 
-  const getTrackColor = () => {
-    switch (track.type) {
-      case "video":
-        return "bg-blue-500";
-      case "audio":
-        return "bg-green-500";
-      case "image":
-        return "bg-purple-500";
-      default:
-        return "bg-gray-500";
-    }
-  };
-
   return (
     <div
       ref={trackRef}
-      className={`absolute h-8 ${getTrackColor()} bg-opacity-75 rounded-md cursor-move flex items-center px-2 shadow-md`}
+      className={`absolute h-8 ${getTrackColor(
+        track.type
+      )} bg-opacity-75 rounded-md cursor-move flex items-center px-2 shadow-md`}
       style={trackStyle}
+      onMouseDown={handleMouseDown}
       onContextMenu={(e) => {
         e.preventDefault();
         onContextMenu({
@@ -198,7 +207,6 @@ const TimelineTrack: React.FC<{
           trackId: track.id,
         });
       }}
-      onMouseDown={handleMouseDown}
     >
       <div className="text-white truncate text-sm font-medium">
         {track.file.name} ({track.type})
@@ -207,33 +215,37 @@ const TimelineTrack: React.FC<{
   );
 };
 
-const ContextMenu: React.FC<{
-  x: number;
-  y: number;
-  trackId: string;
-  onSplit: () => void;
-  onDelete: () => void;
-  onClose: () => void;
-}> = ({ x, y, onSplit, onDelete, onClose }) => {
-  return (
-    <div
-      className="absolute bg-gray-700 rounded-md shadow-lg z-30"
-      style={{ top: y, left: x }}
-    >
-      <button
-        className="block w-full text-left px-4 py-2 hover:bg-gray-600 text-white"
-        onClick={onSplit}
-      >
-        Split
-      </button>
-      <button
-        className="block w-full text-left px-4 py-2 hover:bg-gray-600 text-white"
-        onClick={onDelete}
-      >
-        Delete
-      </button>
-    </div>
-  );
+const getTrackColor = (type) => {
+  switch (type) {
+    case "video":
+      return "bg-blue-500";
+    case "audio":
+      return "bg-green-500";
+    case "image":
+      return "bg-purple-500";
+    default:
+      return "bg-gray-500";
+  }
 };
+
+const ContextMenu = ({ x, y, trackId, onSplit, onDelete, onClose }) => (
+  <div
+    className="absolute bg-gray-700 rounded-md shadow-lg z-30"
+    style={{ top: y, left: x }}
+  >
+    <button
+      className="block w-full text-left px-4 py-2 hover:bg-gray-600 text-white"
+      onClick={onSplit}
+    >
+      Split
+    </button>
+    <button
+      className="block w-full text-left px-4 py-2 hover:bg-gray-600 text-white"
+      onClick={onDelete}
+    >
+      Delete
+    </button>
+  </div>
+);
 
 export default Timeline;
