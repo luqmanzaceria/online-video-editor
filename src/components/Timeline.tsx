@@ -1,4 +1,3 @@
-// src/components/Timeline.tsx
 import React, { useState, useRef, useCallback } from "react";
 import { useTimeline, Track } from "@/context/TimelineContext";
 
