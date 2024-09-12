@@ -27,6 +27,7 @@ const VideoPreview: React.FC = () => {
         video.style.height = "100%";
         video.style.objectFit = "contain";
         video.muted = true;
+        video.preload = "auto"; // Ensure video is preloaded
         videoRefs.current[track.id] = video;
         containerRef.current?.appendChild(video);
       }
@@ -59,9 +60,20 @@ const VideoPreview: React.FC = () => {
     if (videoTracks.length > 0) {
       const video = videoRefs.current[videoTracks[0].id];
       video.onloadedmetadata = () => {
+        const aspectRatio = video.videoWidth / video.videoHeight;
+        let newWidth, newHeight;
+        if (aspectRatio > 1) {
+          // Landscape
+          newWidth = Math.min(video.videoWidth, 480);
+          newHeight = newWidth / aspectRatio;
+        } else {
+          // Portrait
+          newHeight = Math.min(video.videoHeight, 480);
+          newWidth = newHeight * aspectRatio;
+        }
         setVideoDimensions({
-          width: video.videoWidth,
-          height: video.videoHeight,
+          width: newWidth,
+          height: newHeight,
         });
       };
     }
@@ -85,9 +97,14 @@ const VideoPreview: React.FC = () => {
               media.style.display = "block";
               activeVideoFound = true;
             }
-            media.currentTime = state.currentTime - trackStart;
+            const newTime = state.currentTime - trackStart;
+            if (Math.abs(media.currentTime - newTime) > 0.1) {
+              media.currentTime = newTime;
+            }
             if (state.isPlaying && media.paused) {
-              media.play();
+              media
+                .play()
+                .catch((error) => console.error("Error playing video:", error));
             } else if (!state.isPlaying && !media.paused) {
               media.pause();
             }
@@ -100,7 +117,6 @@ const VideoPreview: React.FC = () => {
         }
       });
 
-      // If no active video is found, ensure the container is black
       if (!activeVideoFound && containerRef.current) {
         containerRef.current.style.backgroundColor = "black";
       } else if (containerRef.current) {

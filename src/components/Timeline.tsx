@@ -11,11 +11,16 @@ const Timeline: React.FC = () => {
     trackId: null as string | null,
   });
   const timelineRef = useRef<HTMLDivElement>(null);
+  const [scrollLeft, setScrollLeft] = useState(0);
 
   const [props, set] = useSpring(() => ({
     left: "0%",
     immediate: true,
   }));
+
+  const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    setScrollLeft(event.currentTarget.scrollLeft);
+  }, []);
 
   const handleTimelineClick = useCallback(
     (event: React.MouseEvent) => {
@@ -108,16 +113,27 @@ const Timeline: React.FC = () => {
   };
 
   return (
-    <div
-      className="h-full bg-gray-800 p-4 flex flex-col"
-      ref={timelineRef}
-      onClick={handleTimelineClick}
-    >
-      <div className="flex-grow flex flex-col overflow-y-auto">
-        <div className="h-8 mb-2 flex sticky top-0 bg-gray-800 z-10 border-b border-gray-700">
+    <div className="h-full bg-gray-800 p-4 flex flex-col">
+      <div
+        className="flex-grow flex flex-col overflow-x-auto overflow-y-hidden"
+        ref={timelineRef}
+        onClick={handleTimelineClick}
+        onScroll={handleScroll}
+      >
+        <div
+          className="h-8 mb-2 flex sticky top-0 bg-gray-800 z-10 border-b border-gray-700"
+          style={{ width: `${state.totalDuration * 20}px`, minWidth: "100%" }}
+        >
           {renderTimeMarkers()}
         </div>
-        <div className="flex-grow relative">
+        <div
+          className="flex-grow relative"
+          style={{
+            width: `${state.totalDuration * 20}px`,
+            minWidth: "100%",
+            height: `${state.tracks.length * 40}px`,
+          }}
+        >
           {state.tracks.map((track) => (
             <TimelineTrack
               key={track.id}
@@ -129,7 +145,10 @@ const Timeline: React.FC = () => {
           ))}
           <animated.div
             className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none"
-            style={props}
+            style={{
+              left: `${(state.currentTime / state.totalDuration) * 100}%`,
+              transform: `translateX(-${scrollLeft}px)`,
+            }}
           ></animated.div>
         </div>
       </div>
