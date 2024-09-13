@@ -12,6 +12,7 @@ const Timeline: React.FC = () => {
   });
   const timelineRef = useRef<HTMLDivElement>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
+  const lastTimestamp = useRef(performance.now());
 
   const [props, set] = useSpring(() => ({
     left: "0%",
@@ -28,12 +29,13 @@ const Timeline: React.FC = () => {
         const rect = timelineRef.current.getBoundingClientRect();
         const clickX = event.clientX - rect.left;
         const clickTime = (clickX / rect.width) * state.totalDuration;
+        const newTime = Math.max(0, Math.min(clickTime, state.totalDuration));
         dispatch({
           type: "SET_CURRENT_TIME",
-          payload: Math.max(0, Math.min(clickTime, state.totalDuration)),
+          payload: newTime,
         });
-        set({
-          left: `${(clickTime / state.totalDuration) * 100}%`,
+        set.start({
+          left: `${(newTime / state.totalDuration) * 100}%`,
           immediate: true,
         });
       }
@@ -112,6 +114,43 @@ const Timeline: React.FC = () => {
     return markers;
   };
 
+  useEffect(() => {
+    let animationFrame: number;
+
+    const updatePlayhead = (timestamp: number) => {
+      if (state.isPlaying) {
+        const deltaTime = (timestamp - lastTimestamp.current) / 1000;
+        const newTime = Math.min(
+          state.currentTime + deltaTime,
+          state.totalDuration
+        );
+        dispatch({ type: "SET_CURRENT_TIME", payload: newTime });
+        set.start({
+          left: `${(newTime / state.totalDuration) * 100}%`,
+          immediate: false,
+        });
+        lastTimestamp.current = timestamp;
+        animationFrame = requestAnimationFrame(updatePlayhead);
+      }
+    };
+
+    if (state.isPlaying) {
+      lastTimestamp.current = performance.now();
+      animationFrame = requestAnimationFrame(updatePlayhead);
+    } else {
+      set.start({
+        left: `${(state.currentTime / state.totalDuration) * 100}%`,
+        immediate: true,
+      });
+    }
+
+    return () => {
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [state.isPlaying, state.currentTime, state.totalDuration, dispatch, set]);
+
   return (
     <div className="h-full bg-gray-800 p-4 flex flex-col">
       <div
@@ -146,7 +185,7 @@ const Timeline: React.FC = () => {
           <animated.div
             className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none"
             style={{
-              left: `${(state.currentTime / state.totalDuration) * 100}%`,
+              ...props,
               transform: `translateX(-${scrollLeft}px)`,
             }}
           ></animated.div>
